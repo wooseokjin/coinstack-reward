@@ -15,9 +15,10 @@ const SPEED_STEP           = 0.4;     // 10개마다 추가 속도
 const MAX_INSTABILITY      = 100;
 const INSTAB_START_RATIO   = 0.15;
 const INSTAB_WEIGHT        = 90;
-const RECENT_N             = 5;    // 타워 무게중심 계산에 쓸 최근 동전 수
-const RECOVERY_WEIGHT      = 25;   // 중심 방향 보정 시 회복 가중치
-const RECOVERY_AMOUNT      = 6;    // 중심 근접 시 추가 고정 회복량
+const RECENT_N             = 3;    // 최근 3개: 보정 반응 빠르게
+const RECOVERY_WEIGHT      = 45;   // 중심 보정 시 회복 가중치 (25→45)
+const RECOVERY_AMOUNT      = 12;   // 중심 근접 시 추가 회복 (6→12)
+const COLLAPSE_MARGIN      = 1.10; // 즉시 붕괴 여유폭 (×COIN_RADIUS = 33px)
 const MOVING_COIN_Y        = 110;    // 이동 동전 고정 y (px)
 
 // ========================
@@ -130,8 +131,8 @@ function dropCoin() {
   const prev       = stack[stack.length - 1];
   const prevOffset = Math.abs(movingCoin.x - prev.x);
 
-  // 단계 1: 즉시 붕괴 — 직전 동전 반지름 이상 벗어남 (변경 없음)
-  if (prevOffset >= COIN_RADIUS) {
+  // 단계 1: 즉시 붕괴 — 직전 동전에서 너무 벗어남
+  if (prevOffset >= COIN_RADIUS * COLLAPSE_MARGIN) {
     checkCollapse();
     return;
   }
@@ -146,8 +147,7 @@ function dropCoin() {
 
   const prevRatio   = prevOffset / COIN_RADIUS;
   const centerRatio = newToCenter / COIN_RADIUS;
-  // prevOffset이 크면 회복을 일부 상쇄하고, 이탈 시 추가 패널티
-  const prevPenalty = Math.max(0, prevRatio - INSTAB_START_RATIO) * INSTAB_WEIGHT * 0.25;
+  const prevPenalty = Math.max(0, prevRatio - INSTAB_START_RATIO) * INSTAB_WEIGHT * 0.10;
 
   let delta;
   if (improvement > 0) {
@@ -155,7 +155,7 @@ function dropCoin() {
     delta = prevPenalty - (improvement / COIN_RADIUS) * RECOVERY_WEIGHT;
   } else {
     // 중심 이탈 → 불안정 증가
-    delta = (-improvement / COIN_RADIUS) * INSTAB_WEIGHT * 0.75 + prevPenalty;
+    delta = (-improvement / COIN_RADIUS) * INSTAB_WEIGHT * 0.50 + prevPenalty;
   }
   // 중심 근접 시 추가 소량 회복 (정교한 플레이 보상)
   if (centerRatio < INSTAB_START_RATIO) delta -= RECOVERY_AMOUNT;

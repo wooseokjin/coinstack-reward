@@ -60,6 +60,8 @@ let gamePhase    = 'intro';  // 'intro' | 'playing' | 'collapsing' | 'result'
 let animFrameId  = null;
 let collapseTimeoutId = null;
 let stars        = [];
+let landingAnim  = { active: false, progress: 0, coinIndex: -1 };
+const hitText    = { label: '', x: 0, y: 0, timer: 0, isPerfect: false };
 
 // ========================
 // API CALLS
@@ -118,6 +120,8 @@ function startGame() {
   instability  = 0;
   cameraOffset = 0;
   stars        = [];
+  landingAnim  = { active: false, progress: 0, coinIndex: -1 };
+  hitText.timer = 0;
   gamePhase    = 'playing';
 
   updateHUD();
@@ -163,6 +167,18 @@ function dropCoin() {
   instability = Math.min(MAX_INSTABILITY, Math.max(0, instability + delta));
 
   stack.push({ x: movingCoin.x, color: getCoinColor(instability) });
+
+  // 착지 bounce 애니메이션
+  landingAnim = { active: true, progress: 0, coinIndex: stack.length - 1 };
+
+  // 판정 텍스트
+  const normOff  = prevOffset / COIN_RADIUS;
+  const textY    = getStackCoinScreenY(stack.length - 1) - COIN_HALF_H - 16;
+  if (normOff < 0.08) {
+    Object.assign(hitText, { label: 'PERFECT!', isPerfect: true,  timer: 55, x: movingCoin.x, y: textY });
+  } else if (normOff < 0.30) {
+    Object.assign(hitText, { label: 'GOOD',     isPerfect: false, timer: 42, x: movingCoin.x, y: textY });
+  }
 
   // 쌓을수록 이동 속도 증가 (10개마다 +0.4)
   movingCoin.speed = BASE_SWING_SPEED + Math.floor(stack.length / 10) * SPEED_STEP;
@@ -232,6 +248,10 @@ function gameLoop() {
   if (gamePhase !== 'playing' && gamePhase !== 'collapsing') return;
 
   if (gamePhase === 'playing') updateMovingCoin();
+  if (landingAnim.active) {
+    landingAnim.progress += 0.07;  // ~14프레임 = 약 230ms
+    if (landingAnim.progress >= 1) landingAnim.active = false;
+  }
   updateCamera();
   render();
 
@@ -249,19 +269,38 @@ function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground();
 
-  // 쌓인 동전 렌더 (화면 범위 안에 있는 것만)
+  // 불안정 흔들림 — 스택 전체에 적용
+  const wobble = getWobble();
+  ctx.save();
+  ctx.translate(wobble, 0);
+
   for (let i = 0; i < stack.length; i++) {
     const sy = getStackCoinScreenY(i);
     if (sy > canvas.height + COIN_HALF_H) continue;
     if (sy < -COIN_HALF_H) break;
-    drawCoin(stack[i].x, sy, stack[i].color, false);
+
+    if (landingAnim.active && i === landingAnim.coinIndex) {
+      const scl = getLandingScale(landingAnim.progress);
+      ctx.save();
+      ctx.translate(stack[i].x, sy);
+      ctx.scale(scl.scx, scl.scy);
+      ctx.translate(-stack[i].x, -sy);
+      drawCoin(stack[i].x, sy, stack[i].color, false);
+      ctx.restore();
+    } else {
+      drawCoin(stack[i].x, sy, stack[i].color, false);
+    }
   }
 
-  // 이동 동전 + 가이드 라인
+  ctx.restore(); // wobble 해제
+
+  // 이동 동전 + 가이드 라인 (wobble 없음)
   if (gamePhase === 'playing') {
     drawDropIndicator();
     drawCoin(movingCoin.x, MOVING_COIN_Y, getCoinColor(instability), true);
   }
+
+  drawHitText();
 }
 
 // ========================
@@ -280,16 +319,17 @@ function drawBackground() {
   let topColor, btmColor;
 
   if (score < 100) {
-    topColor = '#4A90D9';
-    btmColor = '#C9E8F7';
+    // 맑은 하늘: 짙은 파랑 → 하늘색
+    topColor = '#1356B4';
+    btmColor = '#70C8F0';
   } else if (score < 300) {
-    topColor = '#7BA7C4';
-    btmColor = '#DFF0FA';
-    drawClouds();
+    // 구름층: 회청 → 거의 흰색
+    topColor = '#546E7A';
+    btmColor = '#E8F0F5';
   } else {
-    topColor = '#0D1B2A';
-    btmColor = '#1E3A5F';
-    drawStars();
+    // 우주: 거의 검정
+    topColor = '#02020C';
+    btmColor = '#07071E';
   }
 
   const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -298,12 +338,15 @@ function drawBackground() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  // 배경 요소는 그라데이션 위에 (기존엔 아래에 그려져서 가려졌음)
+  if (score >= 300) drawStars();
+  else if (score >= 100) drawClouds();
+
   // 바닥
   const floorScreenY = getFloorY() + COIN_HALF_H + cameraOffset;
   if (floorScreenY < canvas.height) {
     ctx.fillStyle = '#7B5A1A';
     ctx.fillRect(0, floorScreenY, canvas.width, canvas.height - floorScreenY);
-    // 바닥 상단 하이라이트
     ctx.fillStyle = '#A07828';
     ctx.fillRect(0, floorScreenY, canvas.width, 4);
   }
@@ -360,18 +403,26 @@ function drawDropIndicator() {
 
 function drawClouds() {
   const clouds = [
-    { x: canvas.width * 0.18, y: canvas.height * 0.22, s: 1.0 },
-    { x: canvas.width * 0.72, y: canvas.height * 0.42, s: 0.8 },
-    { x: canvas.width * 0.42, y: canvas.height * 0.62, s: 1.1 },
+    { x: canvas.width * 0.12, y: canvas.height * 0.16, s: 1.5 },
+    { x: canvas.width * 0.62, y: canvas.height * 0.30, s: 1.2 },
+    { x: canvas.width * 0.28, y: canvas.height * 0.50, s: 1.7 },
+    { x: canvas.width * 0.76, y: canvas.height * 0.66, s: 1.0 },
   ];
   ctx.save();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
   clouds.forEach(c => {
-    const r = 26 * c.s;
+    const r = 32 * c.s;
+    // 구름 몸체
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
     ctx.beginPath();
-    ctx.arc(c.x,        c.y,       r,       0, Math.PI * 2);
-    ctx.arc(c.x + r,    c.y - r * 0.4, r * 0.8, 0, Math.PI * 2);
-    ctx.arc(c.x + r * 2, c.y,       r * 0.9, 0, Math.PI * 2);
+    ctx.arc(c.x,           c.y,           r,        0, Math.PI * 2);
+    ctx.arc(c.x + r * 0.9, c.y - r * 0.4, r * 0.78, 0, Math.PI * 2);
+    ctx.arc(c.x + r * 1.8, c.y,           r * 0.88, 0, Math.PI * 2);
+    ctx.fill();
+    // 구름 하단 그림자
+    ctx.fillStyle = 'rgba(180, 200, 210, 0.35)';
+    ctx.beginPath();
+    ctx.arc(c.x,           c.y + r * 0.2, r,        0, Math.PI * 2);
+    ctx.arc(c.x + r * 1.8, c.y + r * 0.2, r * 0.88, 0, Math.PI * 2);
     ctx.fill();
   });
   ctx.restore();
@@ -379,6 +430,18 @@ function drawClouds() {
 
 function drawStars() {
   if (stars.length === 0) generateStars();
+
+  // 성운 — 은은한 보라색 광채
+  const nb = ctx.createRadialGradient(
+    canvas.width * 0.7, canvas.height * 0.25, 0,
+    canvas.width * 0.7, canvas.height * 0.25, canvas.width * 0.45
+  );
+  nb.addColorStop(0, 'rgba(90, 40, 140, 0.18)');
+  nb.addColorStop(1, 'rgba(0,   0,   0,  0)');
+  ctx.fillStyle = nb;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 별
   ctx.save();
   stars.forEach(s => {
     ctx.globalAlpha = s.a;
@@ -392,14 +455,50 @@ function drawStars() {
 }
 
 function generateStars() {
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 110; i++) {
     stars.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
-      r: Math.random() * 1.5 + 0.4,
-      a: Math.random() * 0.6 + 0.4,
+      r: Math.random() * 1.8 + 0.3,
+      a: Math.random() * 0.65 + 0.35,
     });
   }
+}
+
+function getLandingScale(t) {
+  // 납작해졌다(squish) → 퉁겨오름(bounce) → 정착(settle)
+  if (t < 0.40) {
+    const p = t / 0.40;
+    return { scx: 1 + 0.16 * p, scy: 1 - 0.44 * p };
+  } else if (t < 0.70) {
+    const p = (t - 0.40) / 0.30;
+    return { scx: 1.16 - 0.21 * p, scy: 0.56 + 0.50 * p };
+  } else {
+    const p = (t - 0.70) / 0.30;
+    return { scx: 0.95 + 0.05 * p, scy: 1.06 - 0.06 * p };
+  }
+}
+
+function getWobble() {
+  if (instability < 35) return 0;
+  const strength = (instability - 35) / 65;  // 0→1
+  return Math.sin(Date.now() / 85) * strength * 4;
+}
+
+function drawHitText() {
+  if (hitText.timer <= 0) return;
+  const alpha = Math.min(1, hitText.timer / 16);
+  hitText.timer--;
+  hitText.y -= 0.65;
+  ctx.save();
+  ctx.globalAlpha    = alpha;
+  ctx.font           = `bold ${hitText.isPerfect ? '23' : '17'}px -apple-system, sans-serif`;
+  ctx.fillStyle      = hitText.isPerfect ? '#FFE033' : '#FFFFFF';
+  ctx.shadowColor    = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur     = 5;
+  ctx.textAlign      = 'center';
+  ctx.fillText(hitText.label, hitText.x, hitText.y);
+  ctx.restore();
 }
 
 // ========================

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>동전 쌓기</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- 인트로 화면 -->
+  <div id="screen-intro" class="screen active">
+    <div class="intro-content">
+      <div class="coin-icon">🪙</div>
+      <h1>동전 쌓기</h1>
+      <p class="subtitle">얼마나 높이 쌓을 수 있을까?</p>
+      <p id="best-score" class="best-score"></p>
+      <button id="btn-start" class="btn-primary">시작하기</button>
+    </div>
+  </div>
+
+  <!-- 게임 화면 -->
+  <div id="screen-game" class="screen">
+    <canvas id="game-canvas"></canvas>
+    <div id="hud">
+      <span id="hud-height">0m</span>
+      <div class="instability-wrap">
+        <span class="instability-label">불안정</span>
+        <div id="instability-bg">
+          <div id="instability-bar"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 결과 화면 -->
+  <div id="screen-result" class="screen">
+    <div class="result-content">
+      <h2>탑 붕괴!</h2>
+      <div class="result-score-block">
+        <div id="result-score" class="result-score">0m</div>
+        <div id="result-coins" class="result-coins"></div>
+      </div>
+      <div id="result-rank" class="result-rank"></div>
+      <div id="ranking-loading" class="ranking-loading">랭킹 불러오는 중...</div>
+      <div id="ranking-content" class="hidden">
+        <p class="ranking-title">오늘 TOP 5</p>
+        <ul id="ranking-list" class="ranking-list"></ul>
+      </div>
+      <button id="btn-retry" class="btn-primary">다시 하기</button>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

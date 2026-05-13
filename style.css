@@ -1,0 +1,304 @@
+/* 동전 쌓기 게임 - 스타일 */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ========================
+   화면 전환
+======================== */
+.screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+}
+
+.screen.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ========================
+   인트로 화면
+======================== */
+#screen-intro {
+  background: linear-gradient(180deg, #4A90D9 0%, #C9E8F7 100%);
+}
+
+.intro-content {
+  text-align: center;
+  color: #fff;
+  padding: 32px 24px;
+}
+
+.coin-icon {
+  font-size: 80px;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.25));
+}
+
+h1 {
+  font-size: 38px;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  margin-bottom: 8px;
+  letter-spacing: -1px;
+}
+
+.subtitle {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 20px;
+}
+
+.best-score {
+  font-size: 15px;
+  font-weight: 600;
+  color: #FFD700;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  margin-bottom: 36px;
+  min-height: 22px;
+}
+
+/* ========================
+   공통 버튼
+======================== */
+.btn-primary {
+  display: block;
+  width: 200px;
+  padding: 16px 0;
+  margin: 0 auto;
+  background: #FFD700;
+  color: #5A3E00;
+  font-size: 18px;
+  font-weight: 700;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.btn-primary:active {
+  transform: scale(0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ========================
+   게임 화면
+======================== */
+#screen-game {
+  display: none;
+  position: fixed;
+  inset: 0;
+}
+
+#screen-game.active {
+  display: block;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+}
+
+/* HUD */
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+#hud-height {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  letter-spacing: -0.5px;
+}
+
+.instability-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.instability-label {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+}
+
+#instability-bg {
+  width: 90px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+#instability-bar {
+  height: 100%;
+  width: 0%;
+  background-color: #4CAF50;
+  border-radius: 5px;
+  transition: width 0.15s ease, background-color 0.3s ease;
+}
+
+/* 캔버스 흔들기 */
+@keyframes shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  15%       { transform: translateX(-10px) rotate(-0.8deg); }
+  30%       { transform: translateX(9px) rotate(0.8deg); }
+  45%       { transform: translateX(-7px) rotate(-0.5deg); }
+  60%       { transform: translateX(6px) rotate(0.5deg); }
+  75%       { transform: translateX(-4px); }
+  90%       { transform: translateX(3px); }
+}
+
+/* ========================
+   결과 화면
+======================== */
+#screen-result {
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  overflow-y: auto;
+  align-items: flex-start;
+}
+
+.result-content {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 52px 24px 36px;
+  text-align: center;
+  color: #fff;
+}
+
+h2 {
+  font-size: 30px;
+  font-weight: 900;
+  color: #FF6347;
+  margin-bottom: 24px;
+  letter-spacing: -0.5px;
+}
+
+.result-score-block {
+  margin-bottom: 20px;
+}
+
+.result-score {
+  font-size: 60px;
+  font-weight: 900;
+  color: #FFD700;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+
+.result-coins {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 6px;
+}
+
+.result-rank {
+  font-size: 18px;
+  font-weight: 600;
+  color: #87CEEB;
+  margin-bottom: 24px;
+  min-height: 26px;
+}
+
+.ranking-loading {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 14px;
+  padding: 16px 0;
+}
+
+.ranking-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 10px;
+}
+
+.ranking-list {
+  list-style: none;
+  margin-bottom: 32px;
+}
+
+.rank-item {
+  display: flex;
+  align-items: center;
+  padding: 11px 14px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.rank-item--me {
+  background: rgba(255, 215, 0, 0.12);
+  border: 1px solid rgba(255, 215, 0, 0.28);
+}
+
+.rank-pos {
+  width: 36px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+  text-align: left;
+}
+
+.rank-name {
+  flex: 1;
+  font-size: 15px;
+  color: #fff;
+  text-align: left;
+}
+
+.rank-name em {
+  font-style: normal;
+  font-size: 11px;
+  color: #FFD700;
+  background: rgba(255, 215, 0, 0.18);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-left: 5px;
+}
+
+.rank-score {
+  font-size: 15px;
+  font-weight: 700;
+  color: #FFD700;
+}
+
+/* ========================
+   유틸리티
+======================== */
+.hidden {
+  display: none !important;
+}

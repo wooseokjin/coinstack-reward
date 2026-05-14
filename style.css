@@ -197,7 +197,7 @@ h1 {
   color: #fff;
 }
 
-h2 {
+.result-title {
   font-size: 30px;
   font-weight: 900;
   color: #FF6347;
@@ -223,6 +223,12 @@ h2 {
   margin-top: 6px;
 }
 
+.result-score--high {
+  text-shadow:
+    0 0 20px rgba(255, 215, 0, 0.45),
+    0 0 40px rgba(255, 200, 0, 0.20);
+}
+
 .result-message {
   font-size: 16px;
   color: rgba(255, 255, 255, 0.78);
@@ -243,11 +249,17 @@ h2 {
 }
 
 .result-rank {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
-  color: #87CEEB;
+  color: rgba(255, 255, 255, 0.60);
   margin-bottom: 24px;
   min-height: 26px;
+}
+
+.result-rank strong {
+  color: #FFD700;
+  font-size: 22px;
+  font-weight: 900;
 }
 
 .ranking-loading {
@@ -280,8 +292,22 @@ h2 {
 }
 
 .rank-item--me {
-  background: rgba(255, 215, 0, 0.12);
-  border: 1px solid rgba(255, 215, 0, 0.28);
+  background: rgba(255, 215, 0, 0.16);
+  border: 1px solid rgba(255, 215, 0, 0.40);
+  box-shadow: inset 3px 0 0 rgba(255, 215, 0, 0.70);
+}
+
+.rank-item--separator {
+  background: transparent;
+  padding: 3px 14px;
+  margin-bottom: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.rank-pos--dots {
+  color: rgba(255, 255, 255, 0.40);
+  font-size: 12px;
+  letter-spacing: 3px;
 }
 
 .rank-pos {

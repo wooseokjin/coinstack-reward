@@ -732,7 +732,9 @@ function updateHUD() {
 }
 
 function renderResult(score) {
-  document.getElementById('result-score').textContent = score + 'm';
+  const scoreEl = document.getElementById('result-score');
+  scoreEl.textContent = score + 'm';
+  scoreEl.classList.toggle('result-score--high', score >= 100);
   document.getElementById('result-coins').textContent = (stack.length - 1) + '개 쌓음';
   document.getElementById('result-message').textContent = getResultMessage(score);
   document.getElementById('result-rank').textContent = '';
@@ -740,11 +742,12 @@ function renderResult(score) {
 }
 
 function getResultMessage(score) {
-  if (score >= 201) return '전설급 탑을 세웠어요!';
-  if (score >= 101) return '믿기 어려운 높이예요!';
-  if (score >= 51)  return '실력자군요!';
-  if (score >= 26)  return '꽤 높이 쌓았어요!';
-  return '아쉽지만, 다시 도전해봐요!';
+  if (score === 0)   return '동전을 올리지 못했어요. 다시!';
+  if (score <= 20)   return '한 번 더 집중해봐요!';
+  if (score <= 50)   return '조금씩 늘고 있어요! 파이팅';
+  if (score <= 100)  return '꽤 잘 쌓았어요! 더 갈 수 있어요';
+  if (score <= 200)  return '균형감각이 대단해요!';
+  return '전설급 탑! 오늘의 주인공 🏆';
 }
 
 async function fetchRanking() {
@@ -765,19 +768,40 @@ async function fetchRanking() {
 
 function renderRanking(ranking) {
   const rankEl = document.getElementById('result-rank');
-  rankEl.textContent = ranking.myRankToday ? '오늘 내 순위: ' + ranking.myRankToday + '위' : '오늘 첫 도전!';
+  rankEl.innerHTML = ranking.myRankToday
+    ? '오늘 내 순위 <strong>' + ranking.myRankToday + '위</strong>'
+    : '오늘 첫 도전!';
 
-  const listEl = document.getElementById('ranking-list');
-  listEl.innerHTML = ranking.top5Today.map(item => {
+  const medals = ['🥇', '🥈', '🥉'];
+  let meInTop5 = false;
+
+  const rows = ranking.top5Today.map(item => {
     const isMe = item.platformCode === session.platformCode &&
                  item.displayName  === session.displayName;
+    if (isMe) meInTop5 = true;
+    const pos = item.rank <= 3 ? medals[item.rank - 1] : item.rank + '위';
     return '<li class="rank-item' + (isMe ? ' rank-item--me' : '') + '">' +
-      '<span class="rank-pos">' + item.rank + '위</span>' +
+      '<span class="rank-pos">' + pos + '</span>' +
       '<span class="rank-name">' + item.displayName + (isMe ? ' <em>나</em>' : '') + '</span>' +
       '<span class="rank-score">' + item.score + 'm</span>' +
     '</li>';
-  }).join('');
+  });
 
+  if (!meInTop5 && ranking.myRankToday && ranking.myBestToday !== null) {
+    rows.push(
+      '<li class="rank-item rank-item--separator">' +
+        '<span class="rank-pos rank-pos--dots">···</span>' +
+        '<span class="rank-name"></span><span class="rank-score"></span>' +
+      '</li>',
+      '<li class="rank-item rank-item--me">' +
+        '<span class="rank-pos">' + ranking.myRankToday + '위</span>' +
+        '<span class="rank-name">' + session.displayName + ' <em>나</em></span>' +
+        '<span class="rank-score">' + ranking.myBestToday + 'm</span>' +
+      '</li>'
+    );
+  }
+
+  document.getElementById('ranking-list').innerHTML = rows.join('');
   document.getElementById('ranking-loading').classList.add('hidden');
   document.getElementById('ranking-content').classList.remove('hidden');
 }

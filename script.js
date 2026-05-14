@@ -6,20 +6,26 @@
 const API_BASE    = 'https://wootopia.kr/reward-game/api';
 const GAME_ID     = 'coinstack';
 
-const COIN_RADIUS          = 30;   // 수평 반지름 (충돌 판정 기준, 변경 금지)
-const COIN_HALF_H          = 14;   // 이미지 수직 반지름 (coin.png 기준)
-const COIN_DIAMETER        = 17;   // < COIN_HALF_H*2, 위 동전이 아래 동전을 ~39% 덮음
+const COIN_RADIUS          = 30;
+const COIN_HALF_H          = 14;
+const COIN_DIAMETER        = 17;
 const METERS_PER_COIN      = 5;
-const BASE_SWING_SPEED     = 3;       // px/frame
-const SPEED_STEP           = 0.4;     // 10개마다 추가 속도
+const BASE_SWING_SPEED     = 3;
+const SPEED_STEP           = 0.4;
 const MAX_INSTABILITY      = 100;
 const INSTAB_START_RATIO   = 0.15;
 const INSTAB_WEIGHT        = 90;
-const RECENT_N             = 3;    // 최근 3개: 보정 반응 빠르게
-const RECOVERY_WEIGHT      = 45;   // 중심 보정 시 회복 가중치 (25→45)
-const RECOVERY_AMOUNT      = 12;   // 중심 근접 시 추가 회복 (6→12)
-const COLLAPSE_MARGIN      = 1.10; // 즉시 붕괴 여유폭 (×COIN_RADIUS = 33px)
-const MOVING_COIN_Y        = 110;    // 이동 동전 고정 y (px)
+const RECENT_N             = 3;
+const RECOVERY_WEIGHT      = 45;
+const RECOVERY_AMOUNT      = 12;
+const COLLAPSE_MARGIN      = 1.10;
+const MOVING_COIN_Y        = 110;
+
+// 배경 구간 임계값 — 테스트 시 여기만 수정 (원래값: 40 / 100 / 180 / 260)
+const BG_ZONE1_M = 10;   // 구름 언덕 시작 (m)
+const BG_ZONE2_M = 20;   // 노을 하늘 시작 (m)
+const BG_ZONE3_M = 30;   // 밤하늘 시작 (m)
+const BG_ZONE4_M = 40;   // 우주 시작 (m)
 
 // ========================
 // MOCK USER & AUTH
@@ -52,16 +58,18 @@ const session = { platformCode: '', platformUserKey: '', displayName: '' };
 // ========================
 let canvas, ctx;
 let coinImg      = null;
-let stack        = [];   // { x: px, color: string }[]
+let stack        = [];
 let movingCoin   = { x: 0, dir: 1, speed: BASE_SWING_SPEED };
 let instability  = 0;
 let cameraOffset = 0;
-let gamePhase    = 'intro';  // 'intro' | 'playing' | 'collapsing' | 'result'
+let gamePhase    = 'intro';
 let animFrameId  = null;
 let collapseTimeoutId = null;
 let stars        = [];
 let landingAnim  = { active: false, progress: 0, coinIndex: -1 };
 const hitText    = { label: '', x: 0, y: 0, timer: 0, isPerfect: false };
+let zoneText     = { label: '', timer: 0, total: 0, color: '#FFFFFF' };
+let prevZone     = -1;
 
 // ========================
 // API CALLS
@@ -121,7 +129,9 @@ function startGame() {
   cameraOffset = 0;
   stars        = [];
   landingAnim  = { active: false, progress: 0, coinIndex: -1 };
-  hitText.timer = 0;
+  hitText.timer  = 0;
+  zoneText.timer = 0;
+  prevZone       = 0;
   gamePhase    = 'playing';
 
   updateHUD();
@@ -135,19 +145,17 @@ function dropCoin() {
   const prev       = stack[stack.length - 1];
   const prevOffset = Math.abs(movingCoin.x - prev.x);
 
-  // 단계 1: 즉시 붕괴 — 직전 동전에서 너무 벗어남
   if (prevOffset >= COIN_RADIUS * COLLAPSE_MARGIN) {
     checkCollapse();
     return;
   }
 
-  // 단계 2: instability 계산 — 최근 타워 중심축 기반
   const N            = Math.min(stack.length, RECENT_N);
   const recentCenter = stack.slice(-N).reduce((s, c) => s + c.x, 0) / N;
 
   const prevToCenter = Math.abs(prev.x - recentCenter);
   const newToCenter  = Math.abs(movingCoin.x - recentCenter);
-  const improvement  = prevToCenter - newToCenter;  // 양수: 중심에 가까워짐
+  const improvement  = prevToCenter - newToCenter;
 
   const prevRatio   = prevOffset / COIN_RADIUS;
   const centerRatio = newToCenter / COIN_RADIUS;
@@ -155,23 +163,20 @@ function dropCoin() {
 
   let delta;
   if (improvement > 0) {
-    // 중심 방향 보정 → 회복
     delta = prevPenalty - (improvement / COIN_RADIUS) * RECOVERY_WEIGHT;
   } else {
-    // 중심 이탈 → 불안정 증가
     delta = (-improvement / COIN_RADIUS) * INSTAB_WEIGHT * 0.50 + prevPenalty;
   }
-  // 중심 근접 시 추가 소량 회복 (정교한 플레이 보상)
   if (centerRatio < INSTAB_START_RATIO) delta -= RECOVERY_AMOUNT;
 
   instability = Math.min(MAX_INSTABILITY, Math.max(0, instability + delta));
 
+  checkZoneChange();
+
   stack.push({ x: movingCoin.x, color: getCoinColor(instability) });
 
-  // 착지 bounce 애니메이션
   landingAnim = { active: true, progress: 0, coinIndex: stack.length - 1 };
 
-  // 판정 텍스트
   const normOff  = prevOffset / COIN_RADIUS;
   const textY    = getStackCoinScreenY(stack.length - 1) - COIN_HALF_H - 16;
   if (normOff < 0.08) {
@@ -180,7 +185,6 @@ function dropCoin() {
     Object.assign(hitText, { label: 'GOOD',     isPerfect: false, timer: 42, x: movingCoin.x, y: textY });
   }
 
-  // 쌓을수록 이동 속도 증가 (10개마다 +0.4)
   movingCoin.speed = BASE_SWING_SPEED + Math.floor(stack.length / 10) * SPEED_STEP;
 
   updateHUD();
@@ -205,9 +209,8 @@ function updateMovingCoin() {
 function checkCollapse() {
   gamePhase = 'collapsing';
 
-  // 흔들기 애니메이션 재시작
   canvas.style.animation = 'none';
-  void canvas.offsetHeight; // reflow 강제
+  void canvas.offsetHeight;
   canvas.style.animation = 'shake 0.65s ease';
 
   collapseTimeoutId = setTimeout(endGame, 750);
@@ -249,7 +252,7 @@ function gameLoop() {
 
   if (gamePhase === 'playing') updateMovingCoin();
   if (landingAnim.active) {
-    landingAnim.progress += 0.07;  // ~14프레임 = 약 230ms
+    landingAnim.progress += 0.07;
     if (landingAnim.progress >= 1) landingAnim.active = false;
   }
   updateCamera();
@@ -259,7 +262,7 @@ function gameLoop() {
 }
 
 function updateCamera() {
-  const topWorldY    = getFloorY() - COIN_HALF_H - (stack.length - 1) * COIN_DIAMETER;
+  const topWorldY     = getFloorY() - COIN_HALF_H - (stack.length - 1) * COIN_DIAMETER;
   const targetScreenY = canvas.height * 0.38;
   const targetOffset  = Math.max(0, targetScreenY - topWorldY);
   cameraOffset += (targetOffset - cameraOffset) * 0.1;
@@ -269,7 +272,6 @@ function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawBackground();
 
-  // 불안정 흔들림 — 스택 전체에 적용
   const wobble = getWobble();
   ctx.save();
   ctx.translate(wobble, 0);
@@ -292,15 +294,15 @@ function render() {
     }
   }
 
-  ctx.restore(); // wobble 해제
+  ctx.restore();
 
-  // 이동 동전 + 가이드 라인 (wobble 없음)
   if (gamePhase === 'playing') {
     drawDropIndicator();
     drawCoin(movingCoin.x, MOVING_COIN_Y, getCoinColor(instability), true);
   }
 
   drawHitText();
+  drawZoneText();
 }
 
 // ========================
@@ -316,31 +318,25 @@ function getStackCoinScreenY(index) {
 
 function drawBackground() {
   const score = (stack.length - 1) * METERS_PER_COIN;
-  let topColor, btmColor;
 
-  if (score < 100) {
-    // 맑은 하늘: 짙은 파랑 → 하늘색
-    topColor = '#1356B4';
-    btmColor = '#70C8F0';
-  } else if (score < 300) {
-    // 구름층: 회청 → 거의 흰색
-    topColor = '#546E7A';
-    btmColor = '#E8F0F5';
-  } else {
-    // 우주: 거의 검정
-    topColor = '#02020C';
-    btmColor = '#07071E';
-  }
+  let bands;
+  if      (score < BG_ZONE1_M) bands = ['#1870CE','#2882DC','#3C96E8','#54AEF2','#72C4FC','#96D8FF'];
+  else if (score < BG_ZONE2_M) bands = ['#1060C0','#1C78CC','#2E90D8','#46ACE4','#68C8F4','#A0E0FF'];
+  else if (score < BG_ZONE3_M) bands = ['#2C0E5E','#5C2468','#904050','#C06838','#DC9830','#F0C050'];
+  else if (score < BG_ZONE4_M) bands = ['#02060E','#030A1A','#040E26','#061232','#08163E','#0C1C50'];
+  else                          bands = ['#000004','#000108','#01010E','#020214','#04031A','#070522'];
 
-  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  grad.addColorStop(0, topColor);
-  grad.addColorStop(1, btmColor);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const bh = Math.ceil(canvas.height / bands.length);
+  bands.forEach((c, i) => {
+    ctx.fillStyle = c;
+    ctx.fillRect(0, i * bh, canvas.width, bh + 1);
+  });
 
-  // 배경 요소는 그라데이션 위에 (기존엔 아래에 그려져서 가려졌음)
-  if (score >= 300) drawStars();
-  else if (score >= 100) drawClouds();
+  if      (score >= BG_ZONE4_M) drawStars(4);
+  else if (score >= BG_ZONE3_M) drawStars(3);
+  else if (score >= BG_ZONE2_M) drawSunset();
+  else if (score >= BG_ZONE1_M) drawClouds(1);
+  else                           drawClouds(0);
 
   // 바닥
   const floorScreenY = getFloorY() + COIN_HALF_H + cameraOffset;
@@ -370,7 +366,6 @@ function drawCoin(x, y, _color, isMoving) {
       COIN_HALF_H * 2
     );
   } else {
-    // coin.png 로드 전 타원 폴백
     ctx.beginPath();
     ctx.ellipse(x, y, COIN_RADIUS, COIN_HALF_H, 0, 0, Math.PI * 2);
     ctx.fillStyle = '#FFD700';
@@ -401,72 +396,187 @@ function drawDropIndicator() {
   ctx.restore();
 }
 
-function drawClouds() {
-  const clouds = [
-    { x: canvas.width * 0.12, y: canvas.height * 0.16, s: 1.5 },
-    { x: canvas.width * 0.62, y: canvas.height * 0.30, s: 1.2 },
-    { x: canvas.width * 0.28, y: canvas.height * 0.50, s: 1.7 },
-    { x: canvas.width * 0.76, y: canvas.height * 0.66, s: 1.0 },
+// 도트풍 픽셀 구름 블록
+function drawPixelCloud(cx, cy, bs) {
+  const g = [
+    [0,0,1,1,1,0,0],
+    [0,1,1,1,1,1,0],
+    [1,1,1,1,1,1,1],
+    [1,2,2,2,2,2,1],
   ];
+  const cols = 7;
+  const ox = Math.round(cx - (cols * bs) / 2);
+  const oy = Math.round(cy - g.length * bs);
+  g.forEach((row, ri) => {
+    row.forEach((cell, ci) => {
+      if (cell === 0) return;
+      ctx.fillStyle = cell === 1 ? '#FFFFFF' : '#C8DCE8';
+      ctx.fillRect(ox + ci * bs, oy + ri * bs, bs, bs);
+    });
+  });
+}
+
+// zone 0: 아침 하늘 (작은 구름 3개 + 점새)
+// zone 1: 구름 언덕 (큰+중간+하단 구름섬)
+function drawClouds(zone) {
   ctx.save();
-  clouds.forEach(c => {
-    const r = 32 * c.s;
-    // 구름 몸체
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
-    ctx.beginPath();
-    ctx.arc(c.x,           c.y,           r,        0, Math.PI * 2);
-    ctx.arc(c.x + r * 0.9, c.y - r * 0.4, r * 0.78, 0, Math.PI * 2);
-    ctx.arc(c.x + r * 1.8, c.y,           r * 0.88, 0, Math.PI * 2);
-    ctx.fill();
-    // 구름 하단 그림자
-    ctx.fillStyle = 'rgba(180, 200, 210, 0.35)';
-    ctx.beginPath();
-    ctx.arc(c.x,           c.y + r * 0.2, r,        0, Math.PI * 2);
-    ctx.arc(c.x + r * 1.8, c.y + r * 0.2, r * 0.88, 0, Math.PI * 2);
-    ctx.fill();
+  if (zone === 0) {
+    ctx.globalAlpha = 0.80;
+    drawPixelCloud(canvas.width * 0.18, canvas.height * 0.22, 7);
+    drawPixelCloud(canvas.width * 0.64, canvas.height * 0.40, 6);
+    drawPixelCloud(canvas.width * 0.38, canvas.height * 0.62, 5);
+  } else {
+    ctx.globalAlpha = 0.90;
+    drawPixelCloud(canvas.width * 0.14, canvas.height * 0.16, 12);
+    drawPixelCloud(canvas.width * 0.68, canvas.height * 0.28, 11);
+    ctx.globalAlpha = 0.68;
+    drawPixelCloud(canvas.width * 0.38, canvas.height * 0.44, 9);
+    drawPixelCloud(canvas.width * 0.80, canvas.height * 0.55, 8);
+    // 하단 구름섬 — 투명도 낮춰 플레이 방해 최소화
+    ctx.globalAlpha = 0.52;
+    drawPixelCloud(canvas.width * 0.20, canvas.height * 0.74, 12);
+    drawPixelCloud(canvas.width * 0.50, canvas.height * 0.79, 11);
+    drawPixelCloud(canvas.width * 0.76, canvas.height * 0.72, 10);
+  }
+  ctx.restore();
+  if (zone === 0) drawDistantBirds();
+}
+
+// 아주 작은 픽셀 점새 (V자 2px+2px)
+function drawDistantBirds() {
+  const birds = [[0.60, 0.27], [0.63, 0.25], [0.67, 0.27], [0.28, 0.18], [0.82, 0.43]];
+  ctx.save();
+  ctx.fillStyle = 'rgba(20, 50, 140, 0.28)';
+  birds.forEach(([fx, fy]) => {
+    const x = Math.round(canvas.width * fx);
+    const y = Math.round(canvas.height * fy);
+    ctx.fillRect(x, y, 2, 1);
+    ctx.fillRect(x + 3, y, 2, 1);
   });
   ctx.restore();
 }
 
-function drawStars() {
-  if (stars.length === 0) generateStars();
+// 노을 하늘: 수평선 빛 + 픽셀 스파클
+function drawSunset() {
+  // 수평선 노을 빛 — 화면 하단 35%만 커버, 낮은 불투명도
+  const glow = ctx.createLinearGradient(0, canvas.height * 0.65, 0, canvas.height);
+  glow.addColorStop(0, 'rgba(0,0,0,0)');
+  glow.addColorStop(1, 'rgba(255, 140, 30, 0.16)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, canvas.height * 0.65, canvas.width, canvas.height * 0.35);
 
-  // 성운 — 은은한 보라색 광채
-  const nb = ctx.createRadialGradient(
-    canvas.width * 0.7, canvas.height * 0.25, 0,
-    canvas.width * 0.7, canvas.height * 0.25, canvas.width * 0.45
-  );
-  nb.addColorStop(0, 'rgba(90, 40, 140, 0.18)');
-  nb.addColorStop(1, 'rgba(0,   0,   0,  0)');
-  ctx.fillStyle = nb;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 별
+  // 픽셀 스파클 (맥동)
+  const positions = [
+    [0.14, 0.19], [0.68, 0.13], [0.38, 0.34],
+    [0.82, 0.42], [0.22, 0.58], [0.54, 0.70],
+  ];
+  const pulse = Math.sin(Date.now() / 600) * 0.25 + 0.75;
   ctx.save();
-  stars.forEach(s => {
-    ctx.globalAlpha = s.a;
-    ctx.fillStyle   = '#fff';
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-    ctx.fill();
+  ctx.fillStyle = `rgba(255, 230, 100, ${0.52 * pulse})`;
+  positions.forEach(([fx, fy]) => {
+    const x = Math.round(canvas.width * fx);
+    const y = Math.round(canvas.height * fy);
+    ctx.fillRect(x + 1, y, 2, 4);
+    ctx.fillRect(x, y + 1, 4, 2);
   });
-  ctx.globalAlpha = 1;
   ctx.restore();
 }
 
-function generateStars() {
-  for (let i = 0; i < 110; i++) {
+// 도트풍 픽셀 별
+function generateStars(zone) {
+  stars = [];
+  const count = zone === 3 ? 60 : 90;
+  for (let i = 0; i < count; i++) {
+    const r = Math.random();
+    const type = zone === 3
+      ? (r < 0.74 ? 0 : 1)               // 밤: 도트+작은십자만
+      : (r < 0.52 ? 0 : r < 0.82 ? 1 : 2); // 우주: 전체
     stars.push({
-      x: Math.random() * canvas.width,
-      y: Math.random() * canvas.height,
-      r: Math.random() * 1.8 + 0.3,
-      a: Math.random() * 0.65 + 0.35,
+      x:    Math.random() * canvas.width,
+      y:    Math.random() * canvas.height,
+      type, a: Math.random() * 0.55 + 0.45,
     });
   }
 }
 
+function drawStars(zone) {
+  if (stars.length === 0) generateStars(zone);
+  ctx.save();
+  stars.forEach(s => {
+    ctx.globalAlpha = s.a;
+    ctx.fillStyle   = '#FFFFFF';
+    const x = Math.round(s.x), y = Math.round(s.y);
+    if      (s.type === 0) { ctx.fillRect(x, y, 2, 2); }
+    else if (s.type === 1) { ctx.fillRect(x+2, y, 2, 6); ctx.fillRect(x, y+2, 6, 2); }
+    else                   { ctx.fillRect(x+3, y, 3, 9); ctx.fillRect(x, y+3, 9, 3); }
+  });
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  if (zone === 3) drawPixelMoon();
+  else            { drawNebula(); drawPixelPlanet(); }
+}
+
+// 밤하늘 초승달 (5×7 픽셀, bs=4)
+function drawPixelMoon() {
+  const g = [
+    [0,0,1,1,0],
+    [0,1,1,1,1],
+    [1,1,1,1,0],
+    [1,1,1,0,0],
+    [1,1,1,1,0],
+    [0,1,1,1,1],
+    [0,0,1,1,0],
+  ];
+  const bs = 4, cols = 5;
+  const ox = Math.round(canvas.width * 0.74) - Math.floor(cols * bs / 2);
+  const oy = Math.round(canvas.height * 0.17) - Math.floor(g.length * bs / 2);
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  g.forEach((row, ri) => row.forEach((cell, ci) => {
+    if (!cell) return;
+    ctx.fillStyle = '#FFFDE0';
+    ctx.fillRect(ox + ci * bs, oy + ri * bs, bs, bs);
+  }));
+  ctx.restore();
+}
+
+// 우주 성운 (은은한 보라 radial)
+function drawNebula() {
+  const nb = ctx.createRadialGradient(
+    canvas.width * 0.65, canvas.height * 0.30, 0,
+    canvas.width * 0.65, canvas.height * 0.30, canvas.width * 0.40
+  );
+  nb.addColorStop(0, 'rgba(80, 30, 120, 0.18)');
+  nb.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = nb;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// 우주 픽셀 행성 (7×7, bs=5) + 고리
+function drawPixelPlanet() {
+  const g = [
+    [0,0,1,1,1,0,0],
+    [0,1,1,1,1,1,0],
+    [1,1,2,2,2,1,1],
+    [1,2,2,2,2,2,1],
+    [1,1,2,2,2,1,1],
+    [0,1,1,1,1,1,0],
+    [0,0,1,1,1,0,0],
+  ];
+  const bs = 5, cols = 7;
+  const ox = Math.round(canvas.width * 0.78) - Math.floor(cols * bs / 2);
+  const oy = Math.round(canvas.height * 0.18) - Math.floor(g.length * bs / 2);
+  g.forEach((row, ri) => row.forEach((cell, ci) => {
+    if (!cell) return;
+    ctx.fillStyle = cell === 1 ? '#6644AA' : '#9977CC';
+    ctx.fillRect(ox + ci * bs, oy + ri * bs, bs, bs);
+  }));
+  // 행성 고리 (픽셀 가로선)
+  ctx.fillStyle = 'rgba(180, 150, 220, 0.45)';
+  ctx.fillRect(ox - bs, oy + bs * 3, (cols + 2) * bs, bs);
+}
+
 function getLandingScale(t) {
-  // 납작해졌다(squish) → 퉁겨오름(bounce) → 정착(settle)
   if (t < 0.40) {
     const p = t / 0.40;
     return { scx: 1 + 0.16 * p, scy: 1 - 0.44 * p };
@@ -481,7 +591,7 @@ function getLandingScale(t) {
 
 function getWobble() {
   if (instability < 35) return 0;
-  const strength = (instability - 35) / 65;  // 0→1
+  const strength = (instability - 35) / 65;
   return Math.sin(Date.now() / 85) * strength * 4;
 }
 
@@ -498,6 +608,84 @@ function drawHitText() {
   ctx.shadowBlur     = 5;
   ctx.textAlign      = 'center';
   ctx.fillText(hitText.label, hitText.x, hitText.y);
+  ctx.restore();
+}
+
+// 구간 진입 감지
+function checkZoneChange() {
+  const score = (stack.length - 1) * METERS_PER_COIN;
+  const zone = score >= BG_ZONE4_M ? 4
+             : score >= BG_ZONE3_M ? 3
+             : score >= BG_ZONE2_M ? 2
+             : score >= BG_ZONE1_M ? 1 : 0;
+  if (zone !== prevZone && prevZone >= 0) {
+    const labels = ['', '구름 언덕', '노을 하늘', '별빛 층', '우주 진입'];
+    const colors = ['', '#A8DCFF',  '#FFD070',  '#D8C0FF', '#8AB4FF'];
+    zoneText.label = labels[zone];
+    zoneText.color = colors[zone];
+    zoneText.timer = 75;
+    zoneText.total = 75;
+    if (zone === 3 || zone === 4) generateStars(zone);
+  }
+  prevZone = zone;
+}
+
+// 구간 진입 텍스트: 팝인 → 유지 → 위로 float 페이드아웃
+function drawZoneText() {
+  if (zoneText.timer <= 0) return;
+
+  const elapsed = zoneText.total - zoneText.timer;
+  zoneText.timer--;
+
+  let alpha, scale, yOffset;
+  if (elapsed < 12) {
+    // 팝인: easeOutCubic 스케일 + 페이드인
+    const p = elapsed / 12;
+    const e = 1 - Math.pow(1 - p, 3);
+    alpha   = p;
+    scale   = 0.60 + 0.40 * e;
+    yOffset = 0;
+  } else if (zoneText.timer > 20) {
+    // 유지
+    alpha   = 1;
+    scale   = 1;
+    yOffset = 0;
+  } else {
+    // 퇴장: 위로 float + 페이드아웃
+    const p = 1 - (zoneText.timer / 20);
+    alpha   = 1 - p;
+    scale   = 1;
+    yOffset = -22 * p;
+  }
+
+  const cx = canvas.width / 2;
+  const cy = canvas.height * 0.34 + yOffset;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.font         = 'bold 24px monospace';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+
+  // 1패스: 컬러 글로우 (구간별 아케이드 아우라)
+  ctx.globalAlpha   = alpha * 0.55;
+  ctx.shadowColor   = zoneText.color;
+  ctx.shadowBlur    = 14;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.fillStyle     = zoneText.color;
+  ctx.fillText(zoneText.label, 0, 0);
+
+  // 2패스: 흰 텍스트 + 도트풍 픽셀 그림자
+  ctx.globalAlpha   = alpha;
+  ctx.shadowColor   = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur    = 0;
+  ctx.shadowOffsetX = 2;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle     = '#FFFFFF';
+  ctx.fillText(zoneText.label, 0, 0);
+
   ctx.restore();
 }
 

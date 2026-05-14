@@ -223,6 +223,25 @@ h2 {
   margin-top: 6px;
 }
 
+.result-message {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.78);
+  margin-bottom: 16px;
+  min-height: 22px;
+}
+
+.my-best-pill {
+  display: inline-block;
+  background: rgba(255, 215, 0, 0.14);
+  border: 1px solid rgba(255, 215, 0, 0.30);
+  color: #FFD700;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 20px;
+  margin-bottom: 20px;
+}
+
 .result-rank {
   font-size: 18px;
   font-weight: 600;

@@ -226,21 +226,23 @@ async function endGame() {
   const best = parseInt(localStorage.getItem('coinstack_best') || '0');
   if (score > best) localStorage.setItem('coinstack_best', String(score));
 
-  document.getElementById('result-score').textContent = score + 'm';
-  document.getElementById('result-coins').textContent = (stack.length - 1) + '개 쌓음';
-  document.getElementById('result-rank').textContent = '';
-  document.getElementById('ranking-loading').classList.remove('hidden');
-  document.getElementById('ranking-content').classList.add('hidden');
-
+  resetRankingCard();
+  renderResult(score);
   showScreen('result');
 
   try {
     await apiSubmitScore(score);
-    const json = await apiGetRanking();
-    if (json.result === 'success') renderRanking(json.data);
   } catch (e) {
-    console.warn('[coinstack] endGame API error:', e);
-    document.getElementById('ranking-loading').textContent = '랭킹 불러오기 실패';
+    console.warn('[coinstack] submit error:', e);
+  }
+
+  try {
+    const ranking = await fetchRanking();
+    renderRanking(ranking);
+    renderMyBestPill(ranking.myBestToday);
+  } catch (e) {
+    console.warn('[coinstack] ranking error:', e);
+    showRankingError('랭킹을 불러올 수 없습니다.');
   }
 }
 
@@ -729,30 +731,75 @@ function updateHUD() {
     instability < 75 ? '#FF9800' : '#F44336';
 }
 
-function renderRanking(data) {
-  const myRank = data.my_rank;
-  const top5   = (data.ranking || []).map(item => ({
-    rank:        item.rank,
-    displayName: item.display_name,
-    score:       item.best_score,
-    isMe:        item.display_name === session.displayName &&
-                 item.platform_code === session.platformCode,
-  }));
+function renderResult(score) {
+  document.getElementById('result-score').textContent = score + 'm';
+  document.getElementById('result-coins').textContent = (stack.length - 1) + '개 쌓음';
+  document.getElementById('result-message').textContent = getResultMessage(score);
+  document.getElementById('result-rank').textContent = '';
+  document.getElementById('my-best-pill').classList.add('hidden');
+}
 
+function getResultMessage(score) {
+  if (score >= 201) return '전설급 탑을 세웠어요!';
+  if (score >= 101) return '믿기 어려운 높이예요!';
+  if (score >= 51)  return '실력자군요!';
+  if (score >= 26)  return '꽤 높이 쌓았어요!';
+  return '아쉽지만, 다시 도전해봐요!';
+}
+
+async function fetchRanking() {
+  const json = await apiGetRanking();
+  if (json.result !== 'success') throw new Error(json.message || 'get_ranking failed');
+  const data = json.data;
+  return {
+    myBestToday: data.my_best_score ?? null,
+    myRankToday: data.my_rank       ?? null,
+    top5Today: (data.ranking || []).map(item => ({
+      rank:         item.rank,
+      displayName:  item.display_name,
+      platformCode: item.platform_code || '',
+      score:        item.best_score,
+    })),
+  };
+}
+
+function renderRanking(ranking) {
   const rankEl = document.getElementById('result-rank');
-  rankEl.textContent = myRank ? '오늘 내 순위: ' + myRank + '위' : '오늘 첫 도전!';
+  rankEl.textContent = ranking.myRankToday ? '오늘 내 순위: ' + ranking.myRankToday + '위' : '오늘 첫 도전!';
 
   const listEl = document.getElementById('ranking-list');
-  listEl.innerHTML = top5.map(item =>
-    '<li class="rank-item' + (item.isMe ? ' rank-item--me' : '') + '">' +
+  listEl.innerHTML = ranking.top5Today.map(item => {
+    const isMe = item.platformCode === session.platformCode &&
+                 item.displayName  === session.displayName;
+    return '<li class="rank-item' + (isMe ? ' rank-item--me' : '') + '">' +
       '<span class="rank-pos">' + item.rank + '위</span>' +
-      '<span class="rank-name">' + item.displayName + (item.isMe ? ' <em>나</em>' : '') + '</span>' +
+      '<span class="rank-name">' + item.displayName + (isMe ? ' <em>나</em>' : '') + '</span>' +
       '<span class="rank-score">' + item.score + 'm</span>' +
-    '</li>'
-  ).join('');
+    '</li>';
+  }).join('');
 
   document.getElementById('ranking-loading').classList.add('hidden');
   document.getElementById('ranking-content').classList.remove('hidden');
+}
+
+function renderMyBestPill(score) {
+  const pill = document.getElementById('my-best-pill');
+  if (!pill) return;
+  if (score === null || score === undefined) { pill.classList.add('hidden'); return; }
+  pill.textContent = '🏅 오늘 최고기록 ' + score + 'm';
+  pill.classList.remove('hidden');
+}
+
+function resetRankingCard() {
+  const loadingEl = document.getElementById('ranking-loading');
+  const contentEl = document.getElementById('ranking-content');
+  if (loadingEl) { loadingEl.textContent = '랭킹 불러오는 중...'; loadingEl.classList.remove('hidden'); }
+  if (contentEl) contentEl.classList.add('hidden');
+}
+
+function showRankingError(msg) {
+  const loadingEl = document.getElementById('ranking-loading');
+  if (loadingEl) loadingEl.textContent = msg;
 }
 
 // ========================
@@ -784,7 +831,11 @@ function init() {
 
   const user = AUTH.bootstrap();
   Object.assign(session, user);
-  apiAuth(user).catch(e => console.warn('[coinstack] auth failed (dev mode):', e));
+  apiAuth(user)
+    .then(authData => {
+      if (authData && authData.display_name) session.displayName = authData.display_name;
+    })
+    .catch(e => console.warn('[coinstack] auth failed (dev mode):', e));
 
   const best = localStorage.getItem('coinstack_best');
   if (best && best !== '0') {
